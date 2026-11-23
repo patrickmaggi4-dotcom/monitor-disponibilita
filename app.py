@@ -23,6 +23,7 @@ STATE: Dict[str, Any] = {
     "sheet_url": "",
     "site_url": "",
     "running": False,
+    "scanning": False,
     "last_run": None,
     "next_run": None,
     "status_message": "In attesa di configurazione",
@@ -97,7 +98,7 @@ def is_valid_http_url(url: str) -> bool:
 
 async def fetch_sheet_products(client: httpx.AsyncClient, sheet_url: str) -> List[Dict[str, Any]]:
     csv_url = to_export_csv_url(sheet_url)
-    resp = await client.get(csv_url, follow_redirects=True, timeout=30.0)
+    resp = await client.get(csv_url, follow_redirects=True, timeout=25.0)
     resp.raise_for_status()
 
     text = resp.content.decode("utf-8-sig", errors="replace")
@@ -143,7 +144,40 @@ def extract_urls_from_xml(xml_text: str) -> List[str]:
     ]
 
 
-async def discover_site_product_urls(client: httpx.AsyncClient, site_url: str, max_pages: int = 80) -> List[str]:
+def is_product_url(url: str, origin: str) -> bool:
+    if not is_valid_http_url(url):
+        return False
+    if url.rstrip("/") == origin.rstrip("/"):
+        return False
+    p = urlparse(url)
+    path = p.path.lower()
+    low = url.lower()
+
+    if any(ext in path for ext in [
+        ".jpg", ".jpeg", ".png", ".webp", ".gif", ".svg", ".ico",
+        ".pdf", ".css", ".js", ".xml", ".zip", ".mp4", ".mp3"
+    ]):
+        return False
+
+    if any(skip in path for skip in [
+        "/wp-login", "/wp-admin", "/wp-content", "/wp-includes",
+        "/cart", "/carrello", "/checkout", "/account", "/my-account",
+        "/login", "/register", "/privacy", "/cookie", "/termini", "/contatti",
+        "/chi-siamo", "/blog", "/news", "/tag/", "/author/"
+    ]):
+        return False
+
+    if any(seg in low for seg in [
+        "/prodotto/", "/product/", "/item/", "/p/", "/noleggio/",
+        "/attrezzatur", "/macchin", "/scheda", "sku=", "codice=", "id_prodotto="
+    ]):
+        return True
+
+    parts = [seg for seg in p.path.strip("/").split("/") if seg]
+    return len(parts) >= 2
+
+
+async def discover_all_site_product_urls(client: httpx.AsyncClient, site_url: str, max_crawl_pages: int = 250) -> List[str]:
     base = clean_pasted_url(site_url)
     if not base.startswith(("http://", "https://")):
         base = "https://" + base
@@ -154,41 +188,41 @@ async def discover_site_product_urls(client: httpx.AsyncClient, site_url: str, m
     origin = f"{parsed_base.scheme}://{parsed_base.netloc}"
 
     candidate_urls: List[str] = []
+    sitemap_queue: List[str] = []
+    seen_sitemaps = set()
 
-    for sm_path in ["/sitemap_index.xml", "/sitemap.xml", "/product-sitemap.xml"]:
+    for sm_path in ["/sitemap_index.xml", "/sitemap.xml", "/product-sitemap.xml", "/wp-sitemap.xml"]:
         sm_url = urljoin(origin, sm_path)
-        if not is_valid_http_url(sm_url):
+        if is_valid_http_url(sm_url):
+            sitemap_queue.append(sm_url)
+
+    while sitemap_queue and len(seen_sitemaps) < 30:
+        sm_url = sitemap_queue.pop(0)
+        if sm_url in seen_sitemaps:
             continue
+        seen_sitemaps.add(sm_url)
         try:
-            r = await client.get(sm_url, follow_redirects=True, timeout=15.0)
-            if r.status_code == 200 and ("<urlset" in r.text or "<sitemapindex" in r.text):
+            r = await client.get(sm_url, follow_redirects=True, timeout=8.0)
+            if r.status_code == 200 and ("<urlset" in r.text or "<sitemapindex" in r.text or "<?xml" in r.text):
                 locs = extract_urls_from_xml(r.text)
                 for loc in locs:
-                    if loc.endswith(".xml"):
-                        try:
-                            sub = await client.get(loc, follow_redirects=True, timeout=15.0)
-                            if sub.status_code == 200:
-                                candidate_urls.extend(extract_urls_from_xml(sub.text))
-                        except Exception:
-                            pass
+                    if loc.endswith(".xml") and loc not in seen_sitemaps:
+                        sitemap_queue.append(loc)
                     else:
                         candidate_urls.append(loc)
-                if candidate_urls:
-                    break
         except Exception:
             pass
 
     to_visit = [base]
     visited = set()
-    all_internal_pages: List[str] = []
 
-    while to_visit and len(visited) < max_pages:
+    while to_visit and len(visited) < max_crawl_pages:
         current = to_visit.pop(0)
         if current in visited or not is_valid_http_url(current):
             continue
         visited.add(current)
         try:
-            r = await client.get(current, follow_redirects=True, timeout=15.0)
+            r = await client.get(current, follow_redirects=True, timeout=8.0)
             if r.status_code != 200 or "text/html" not in r.headers.get("content-type", ""):
                 continue
             soup = BeautifulSoup(r.text, "html.parser")
@@ -199,34 +233,30 @@ async def discover_site_product_urls(client: httpx.AsyncClient, site_url: str, m
                 p = urlparse(full_url)
                 if p.netloc != parsed_base.netloc:
                     continue
-                if any(ext in p.path.lower() for ext in [".jpg", ".jpeg", ".png", ".webp", ".gif", ".pdf", ".css", ".js", ".xml", ".zip"]):
-                    continue
-                if any(skip in p.path.lower() for skip in ["/wp-login", "/wp-admin", "/cart", "/carrello", "/checkout", "/account", "/my-account", "/login", "/privacy", "/cookie"]):
-                    continue
-                all_internal_pages.append(full_url)
-                if full_url not in visited and full_url not in to_visit and len(to_visit) < max_pages:
-                    to_visit.append(full_url)
+                candidate_urls.append(full_url)
+
+                low = full_url.lower()
+                if any(kw in low for kw in [
+                    "shop", "catalog", "catalogo", "prodott", "categoria",
+                    "category", "collection", "noleggio", "macchin", "attrezzatur",
+                    "page=", "/page/"
+                ]):
+                    if full_url not in visited and full_url not in to_visit and len(to_visit) < max_crawl_pages * 2:
+                        to_visit.append(full_url)
         except Exception:
             pass
 
-    product_like: List[str] = []
-    fallback_pages: List[str] = []
-    seen = set()
+    all_products: List[str] = []
+    seen_products = set()
 
-    for u in candidate_urls + all_internal_pages:
-        if u in seen or not is_valid_http_url(u):
+    for u in candidate_urls:
+        if u in seen_products:
             continue
-        seen.add(u)
-        if u.rstrip("/") == origin.rstrip("/"):
-            continue
-        low = u.lower()
-        if any(seg in low for seg in ["/prodotto/", "/product/", "/item/", "/p/", "/noleggio/", "/attrezzatur", "/macchin", "sku=", "codice="]):
-            product_like.append(u)
-        else:
-            fallback_pages.append(u)
+        seen_products.add(u)
+        if is_product_url(u, origin):
+            all_products.append(u)
 
-    chosen = product_like if product_like else fallback_pages
-    return chosen[:max_pages]
+    return all_products
 
 
 def detect_site_availability(html: str, title: str) -> Tuple[bool, str, List[str]]:
@@ -234,7 +264,7 @@ def detect_site_availability(html: str, title: str) -> Tuple[bool, str, List[str
     text_blob = soup.get_text(" ", strip=True).lower()
 
     found_codes = set()
-    for m in re.findall(r"\b[A-Z0-9]{6,18}\b", f"{title} {soup.get_text(' ', strip=True)}"):
+    for m in re.findall(r"\b[A-Z0-9]{5,18}\b", f"{title} {soup.get_text(' ', strip=True)}"):
         found_codes.add(normalize_code(m))
 
     out_of_stock_phrases = [
@@ -269,143 +299,175 @@ def detect_site_availability(html: str, title: str) -> Tuple[bool, str, List[str
     return True, "Stato da verificare (attivo su pagina)", list(found_codes)
 
 
-async def scan_site_products(client: httpx.AsyncClient, site_url: str) -> List[Dict[str, Any]]:
-    urls = await discover_site_product_urls(client, site_url)
-    results: List[Dict[str, Any]] = []
-
-    for url in urls:
-        if not is_valid_http_url(url):
-            continue
-        try:
-            r = await client.get(url, follow_redirects=True, timeout=15.0)
-            if r.status_code != 200:
-                results.append({
-                    "nome": url.rstrip("/").split("/")[-1],
-                    "url": url,
-                    "available": False,
-                    "stato_sito": f"Non raggiungibile (HTTP {r.status_code})",
-                    "codes": [],
-                })
-                continue
-
-            soup = BeautifulSoup(r.text, "html.parser")
-            h1 = soup.find("h1")
-            title = h1.get_text(" ", strip=True) if h1 else (soup.title.get_text(" ", strip=True) if soup.title else url)
-            avail, stato_sito, codes = detect_site_availability(r.text, title)
-            results.append({
-                "nome": title,
-                "url": url,
-                "available": avail,
-                "stato_sito": stato_sito,
-                "codes": codes,
-            })
-        except Exception as exc:
-            results.append({
+async def fetch_single_product(client: httpx.AsyncClient, url: str) -> Optional[Dict[str, Any]]:
+    if not is_valid_http_url(url):
+        return None
+    try:
+        r = await client.get(url, follow_redirects=True, timeout=7.0)
+        if r.status_code != 200:
+            return {
                 "nome": url.rstrip("/").split("/")[-1],
                 "url": url,
                 "available": False,
-                "stato_sito": f"Errore lettura: {exc}",
+                "stato_sito": f"Non raggiungibile (HTTP {r.status_code})",
                 "codes": [],
-            })
-    return results
+            }
+
+        soup = BeautifulSoup(r.text, "html.parser")
+        h1 = soup.find("h1")
+        title = h1.get_text(" ", strip=True) if h1 else (soup.title.get_text(" ", strip=True) if soup.title else url)
+        avail, stato_sito, codes = detect_site_availability(r.text, title)
+        return {
+            "nome": title,
+            "url": url,
+            "available": avail,
+            "stato_sito": stato_sito,
+            "codes": codes,
+        }
+    except Exception as exc:
+        return {
+            "nome": url.rstrip("/").split("/")[-1],
+            "url": url,
+            "available": False,
+            "stato_sito": f"Errore lettura: {exc}",
+            "codes": [],
+        }
+
+
+def compare_single_item(
+    idx: int,
+    wp: Dict[str, Any],
+    key_to_sheet: Dict[str, Dict[str, Any]],
+    sheet_items: List[Dict[str, Any]],
+    now_str: str,
+) -> Dict[str, Any]:
+    matched_sheet = None
+    for c in wp["codes"]:
+        if c in key_to_sheet:
+            matched_sheet = key_to_sheet[c]
+            break
+
+    if not matched_sheet:
+        wp_words = {w.lower() for w in re.findall(r"[A-Za-z0-9]{3,}", wp["nome"])}
+        best_score = 0
+        for sp in sheet_items:
+            sp_words = {w.lower() for w in re.findall(r"[A-Za-z0-9]{3,}", sp["descrizione"])}
+            if not sp_words:
+                continue
+            overlap = len(wp_words & sp_words)
+            if overlap > best_score and overlap >= 2:
+                best_score = overlap
+                matched_sheet = sp
+
+    sheet_stock = matched_sheet["stock"] if matched_sheet else None
+    sheet_avail = (sheet_stock is not None and sheet_stock > 0)
+    site_avail = bool(wp["available"])
+
+    is_alert = False
+    alert_type = "OK"
+    alert_reason = "Allineato"
+
+    if not site_avail:
+        is_alert = True
+        alert_type = "NON DISPONIBILE"
+        alert_reason = wp["stato_sito"]
+    elif matched_sheet is not None and not sheet_avail:
+        is_alert = True
+        alert_type = "ALERT STOCK 0"
+        alert_reason = f"Attivo sul sito ma STOCK = {sheet_stock} nel foglio"
+    elif matched_sheet is None:
+        is_alert = False
+        alert_type = "NON ABBINATO"
+        alert_reason = "Nessun codice/descrizione corrispondente nel foglio"
+
+    return {
+        "id": idx,
+        "nome": wp["nome"],
+        "url": wp["url"],
+        "codice": matched_sheet["codice"] if matched_sheet else "-",
+        "stock_foglio": sheet_stock if sheet_stock is not None else "-",
+        "disponibile_sito": "Sì" if site_avail else "No",
+        "stato_sito": wp["stato_sito"],
+        "alert": is_alert,
+        "alert_type": alert_type,
+        "motivo": alert_reason,
+        "controllato_alle": now_str,
+    }
 
 
 async def run_monitoring_cycle() -> None:
+    if STATE.get("scanning"):
+        return
+
     sheet_url = clean_pasted_url(STATE.get("sheet_url", ""))
     site_url = clean_pasted_url(STATE.get("site_url", ""))
     if not sheet_url or not site_url:
         return
 
+    STATE["scanning"] = True
+    STATE["items"] = []
+    STATE["alerts"] = []
+    STATE["site_count"] = 0
+
     now = datetime.now(timezone.utc)
-    STATE["status_message"] = "Controllo in corso su Google Sheet e sito..."
+    now_str = now.strftime("%H:%M:%S")
+    STATE["status_message"] = "Lettura Google Sheet e ricerca di tutti i prodotti sul sito..."
 
     headers = {
         "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
     }
     try:
         async with httpx.AsyncClient(headers=headers) as client:
-            sheet_items, site_items = await asyncio.gather(
-                fetch_sheet_products(client, sheet_url),
-                scan_site_products(client, site_url),
-            )
+            sheet_items = await fetch_sheet_products(client, sheet_url)
+            STATE["sheet_count"] = len(sheet_items)
+            STATE["status_message"] = f"Caricati {len(sheet_items)} articoli dal Sheet — ricerca prodotti sul sito..."
 
-        key_to_sheet: Dict[str, Dict[str, Any]] = {}
-        for sp in sheet_items:
-            for k in sp["keys"]:
-                if k and k not in key_to_sheet:
-                    key_to_sheet[k] = sp
+            key_to_sheet: Dict[str, Dict[str, Any]] = {}
+            for sp in sheet_items:
+                for k in sp["keys"]:
+                    if k and k not in key_to_sheet:
+                        key_to_sheet[k] = sp
 
-        compared: List[Dict[str, Any]] = []
-        alerts: List[Dict[str, Any]] = []
+            urls = await discover_all_site_product_urls(client, site_url, max_crawl_pages=250)
+            total_urls = len(urls)
+            STATE["status_message"] = f"Trovati {total_urls} URL prodotto — analisi in corso: 0 / {total_urls}..."
 
-        for idx, wp in enumerate(site_items, start=1):
-            matched_sheet = None
-            for c in wp["codes"]:
-                if c in key_to_sheet:
-                    matched_sheet = key_to_sheet[c]
-                    break
+            compared: List[Dict[str, Any]] = []
+            alerts: List[Dict[str, Any]] = []
+            batch_size = 8
 
-            if not matched_sheet:
-                wp_words = {w.lower() for w in re.findall(r"[A-Za-z0-9]{4,}", wp["nome"])}
-                best_score = 0
-                for sp in sheet_items:
-                    sp_words = {w.lower() for w in re.findall(r"[A-Za-z0-9]{4,}", sp["descrizione"])}
-                    if not sp_words:
+            for i in range(0, total_urls, batch_size):
+                chunk = urls[i:i + batch_size]
+                fetched = await asyncio.gather(*(fetch_single_product(client, u) for u in chunk))
+                for wp in fetched:
+                    if not wp:
                         continue
-                    overlap = len(wp_words & sp_words)
-                    if overlap > best_score and overlap >= 2:
-                        best_score = overlap
-                        matched_sheet = sp
+                    row_obj = compare_single_item(
+                        len(compared) + 1,
+                        wp,
+                        key_to_sheet,
+                        sheet_items,
+                        now_str,
+                    )
+                    compared.append(row_obj)
+                    if row_obj["alert"]:
+                        alerts.append(row_obj)
 
-            sheet_stock = matched_sheet["stock"] if matched_sheet else None
-            sheet_avail = (sheet_stock is not None and sheet_stock > 0)
-            site_avail = bool(wp["available"])
+                STATE["site_count"] = len(compared)
+                STATE["items"] = list(compared)
+                STATE["alerts"] = list(alerts)
+                STATE["status_message"] = f"Analisi in corso: {len(compared)} / {total_urls} prodotti — {len(alerts)} alert"
+                await asyncio.sleep(0.1)
 
-            is_alert = False
-            alert_type = "OK"
-            alert_reason = "Allineato"
-
-            if not site_avail:
-                is_alert = True
-                alert_type = "NON DISPONIBILE"
-                alert_reason = wp["stato_sito"]
-            elif matched_sheet is not None and not sheet_avail:
-                is_alert = True
-                alert_type = "ALERT STOCK 0"
-                alert_reason = f"Attivo sul sito ma STOCK = {sheet_stock} nel foglio"
-            elif matched_sheet is None:
-                is_alert = False
-                alert_type = "NON ABBINATO"
-                alert_reason = "Nessun codice/descrizione corrispondente nel foglio"
-
-            row_obj = {
-                "id": idx,
-                "nome": wp["nome"],
-                "url": wp["url"],
-                "codice": matched_sheet["codice"] if matched_sheet else "-",
-                "stock_foglio": sheet_stock if sheet_stock is not None else "-",
-                "disponibile_sito": "Sì" if site_avail else "No",
-                "stato_sito": wp["stato_sito"],
-                "alert": is_alert,
-                "alert_type": alert_type,
-                "motivo": alert_reason,
-                "controllato_alle": now.strftime("%H:%M:%S"),
-            }
-            compared.append(row_obj)
-            if is_alert:
-                alerts.append(row_obj)
-
-        STATE["sheet_count"] = len(sheet_items)
-        STATE["site_count"] = len(site_items)
-        STATE["items"] = compared
-        STATE["alerts"] = alerts
         STATE["last_run"] = now.isoformat()
         STATE["next_run"] = (now + timedelta(minutes=INTERVAL_MINUTES)).isoformat()
-        STATE["status_message"] = f"Completato — {len(alerts)} alert trovati"
+        STATE["status_message"] = f"Completato — {len(STATE['site_count'] if isinstance(STATE['site_count'], int) else len(STATE['items']))} prodotti analizzati, {len(STATE['alerts'])} alert trovati"
     except Exception as exc:
         STATE["status_message"] = f"Errore durante il controllo: {exc}"
         STATE["last_run"] = now.isoformat()
         STATE["next_run"] = (now + timedelta(minutes=INTERVAL_MINUTES)).isoformat()
+    finally:
+        STATE["scanning"] = False
 
 
 def ensure_job_scheduled() -> None:
