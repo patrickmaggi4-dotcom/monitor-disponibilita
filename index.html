@@ -3,207 +3,205 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Monitor Disponibilità — Lucania Rent</title>
+  <title>Monitor Disponibilità Prodotti</title>
   <style>
-    body { font-family: Arial, sans-serif; background: #f4f6f8; color: #1f2937; margin: 0; padding: 24px; }
-    .container { max-width: 1150px; margin: 0 auto; }
-    .card { background: #fff; border-radius: 10px; padding: 20px; margin-bottom: 18px; box-shadow: 0 2px 8px rgba(0,0,0,0.06); }
-    h1 { margin: 0 0 6px 0; font-size: 22px; }
-    .sub { color: #6b7280; margin-bottom: 16px; font-size: 14px; }
-    .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
-    @media (max-width: 760px) { .grid-2 { grid-template-columns: 1fr; } }
-    input { width: 100%; padding: 11px 12px; border: 1px solid #d1d5db; border-radius: 8px; font-size: 14px; box-sizing: border-box; }
-    .actions { display: flex; gap: 10px; margin-top: 14px; flex-wrap: wrap; align-items: center; }
-    button { padding: 11px 18px; border: none; border-radius: 8px; cursor: pointer; font-weight: bold; font-size: 14px; }
+    body { font-family: Arial, sans-serif; margin: 24px; background: #f5f7fa; color: #1f2937; }
+    .box { background: #fff; padding: 18px; border-radius: 8px; box-shadow: 0 1px 4px rgba(0,0,0,.08); margin-bottom: 18px; }
+    .row { display: flex; gap: 12px; flex-wrap: wrap; margin-bottom: 12px; }
+    .field { flex: 1 1 320px; display: flex; flex-direction: column; gap: 4px; }
+    input { padding: 9px 10px; border: 1px solid #cbd5e1; border-radius: 6px; font-size: 14px; }
+    button { padding: 10px 16px; border: none; border-radius: 6px; cursor: pointer; font-weight: bold; font-size: 14px; }
     .btn-primary { background: #111827; color: #fff; }
     .btn-secondary { background: #e5e7eb; color: #111827; }
     .stats { display: flex; gap: 14px; flex-wrap: wrap; }
-    .stat { background: #f9fafb; border: 1px solid #e5e7eb; border-radius: 8px; padding: 12px 16px; min-width: 150px; }
-    .stat strong { display: block; font-size: 20px; margin-top: 4px; }
-    .alert-box { border: 2px solid #dc2626; background: #fef2f2; }
-    .alert-title { color: #b91c1c; font-weight: bold; margin-bottom: 10px; font-size: 16px; }
-    table { width: 100%; border-collapse: collapse; font-size: 14px; }
-    th, td { text-align: left; padding: 10px; border-bottom: 1px solid #e5e7eb; }
-    tr.row-alert { background: #fee2e2; }
-    .badge-alert { background: #dc2626; color: #fff; padding: 3px 8px; border-radius: 6px; font-size: 12px; font-weight: bold; }
-    .badge-ok { background: #dcfce7; color: #166534; padding: 3px 8px; border-radius: 6px; font-size: 12px; font-weight: bold; }
-    .badge-warn { background: #fef3c7; color: #92400e; padding: 3px 8px; border-radius: 6px; font-size: 12px; font-weight: bold; }
-    a { color: #1d4ed8; text-decoration: none; }
+    .stat { background: #f9fafb; border: 1px solid #e5e7eb; border-radius: 6px; padding: 12px 16px; min-width: 150px; }
+    .stat .num { font-size: 22px; font-weight: bold; margin-top: 4px; }
+    .alert-box { border-left: 5px solid #dc2626; }
+    table { width: 100%; border-collapse: collapse; margin-top: 10px; font-size: 13px; }
+    th, td { text-align: left; padding: 8px 10px; border-bottom: 1px solid #e5e7eb; }
+    th { background: #f9fafb; }
+    .badge-alert { background: #fee2e2; color: #991b1b; padding: 2px 7px; border-radius: 4px; font-weight: bold; }
+    .badge-ok { background: #dcfce7; color: #166534; padding: 2px 7px; border-radius: 4px; font-weight: bold; }
+    .badge-warn { background: #fef3c7; color: #92400e; padding: 2px 7px; border-radius: 4px; font-weight: bold; }
+    .muted { color: #6b7280; font-size: 13px; }
   </style>
 </head>
 <body>
-  <div class="container">
-    <div class="card">
-      <h1>Monitor Disponibilità Prodotti</h1>
-      <div class="sub">Controllo automatico ogni 30 minuti tra il listino Google Sheet e il sito</div>
-      <div class="grid-2">
-        <div>
-          <label><strong>1. Link Google Sheet</strong></label>
-          <input id="sheetUrl" type="url" placeholder="https://docs.google.com/spreadsheets/d/..." />
-        </div>
-        <div>
-          <label><strong>2. Link Sito</strong></label>
-          <input id="siteUrl" type="url" placeholder="https://lucaniarent.it" />
-        </div>
+  <h2>Monitor Disponibilità Prodotti</h2>
+  <p class="muted">Controllo automatico ogni 30 minuti tra il listino Google Sheet e il sito — i prodotti compaiono mano a mano che vengono analizzati</p>
+
+  <div class="box">
+    <div class="row">
+      <div class="field">
+        <label for="sheetUrl">1. Link Google Sheet</label>
+        <input id="sheetUrl" type="text" placeholder="https://docs.google.com/spreadsheets/d/..." />
       </div>
-      <div class="actions">
-        <button class="btn-primary" onclick="startMonitor()">Avvia Monitoraggio (ogni 30 min)</button>
-        <button class="btn-secondary" onclick="scanNow()">Controlla Ora</button>
-        <span id="statusText" style="color:#374151; font-size:13px;"></span>
+      <div class="field">
+        <label for="siteUrl">2. Link Sito</label>
+        <input id="siteUrl" type="text" placeholder="https://lucaniarent.it" />
       </div>
     </div>
-
-    <div class="card">
-      <div class="stats">
-        <div class="stat"><span>Articoli nel Sheet</span><strong id="sheetCount">0</strong></div>
-        <div class="stat"><span>Prodotti letti sul Sito</span><strong id="siteCount">0</strong></div>
-        <div class="stat"><span>Alert Non Disponibili</span><strong id="alertCount" style="color:#dc2626;">0</strong></div>
-        <div class="stat"><span>Prossimo controllo</span><strong id="nextRun">-</strong></div>
-      </div>
-    </div>
-
-    <div class="card alert-box" id="alertSection">
-      <div class="alert-title">ALERT — Prodotti non disponibili / da controllare</div>
-      <table>
-        <thead>
-          <tr>
-            <th>Stato</th>
-            <th>Prodotto sul Sito</th>
-            <th>Codice</th>
-            <th>Stock Sheet</th>
-            <th>Motivo Alert</th>
-          </tr>
-        </thead>
-        <tbody id="alertBody">
-          <tr><td colspan="5">Nessun alert attivo al momento.</td></tr>
-        </tbody>
-      </table>
-    </div>
-
-    <div class="card">
-      <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:10px; margin-bottom:12px;">
-        <strong>Tutti i prodotti analizzati</strong>
-        <div>
-          <button class="btn-secondary" onclick="setFilter('all')">Tutti</button>
-          <button class="btn-secondary" onclick="setFilter('alert')">Solo Alert</button>
-        </div>
-      </div>
-      <table>
-        <thead>
-          <tr>
-            <th>Esito</th>
-            <th>Prodotto</th>
-            <th>Codice</th>
-            <th>Stock Sheet</th>
-            <th>Disponibile Sito</th>
-            <th>Dettaglio</th>
-          </tr>
-        </thead>
-        <tbody id="allBody">
-          <tr><td colspan="6">Inserisci i due link e avvia il monitoraggio.</td></tr>
-        </tbody>
-      </table>
+    <div class="row" style="align-items:center; margin-bottom:0;">
+      <button class="btn-primary" onclick="startMonitor()">Avvia Monitoraggio (ogni 30 min)</button>
+      <button class="btn-secondary" onclick="scanNow()">Controlla Ora</button>
+      <span id="statusMsg" class="muted">In attesa di configurazione</span>
     </div>
   </div>
 
-  <script>
-    let currentFilter = "all";
-    let latestData = null;
+  <div class="box stats">
+    <div class="stat"><div class="muted">Articoli nel Sheet</div><div id="sheetCount" class="num">0</div></div>
+    <div class="stat"><div class="muted">Prodotti letti sul Sito</div><div id="siteCount" class="num">0</div></div>
+    <div class="stat"><div class="muted">Alert Non Disponibili</div><div id="alertCount" class="num" style="color:#dc2626;">0</div></div>
+    <div class="stat"><div class="muted">Prossimo controllo</div><div id="nextRun" class="num">-</div></div>
+  </div>
 
-    function setFilter(mode) {
-      currentFilter = mode;
-      if (latestData) renderTables(latestData);
+  <div class="box alert-box">
+    <h3 style="margin-top:0; color:#b91c1c;">ALERT — Prodotti non disponibili / da controllare</h3>
+    <table>
+      <thead>
+        <tr>
+          <th>Stato</th>
+          <th>Prodotto sul Sito</th>
+          <th>Codice</th>
+          <th>Stock Sheet</th>
+          <th>Motivo Alert</th>
+        </tr>
+      </thead>
+      <tbody id="alertsBody">
+        <tr><td colspan="5" class="muted">Nessun prodotto non disponibile rilevato.</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <div class="box">
+    <div style="display:flex; justify-content:space-between; align-items:center;">
+      <h3 style="margin:0;">Tutti i prodotti analizzati</h3>
+      <div>
+        <button class="btn-secondary" onclick="setFilter('all')">Tutti</button>
+        <button class="btn-secondary" onclick="setFilter('alerts')">Solo Alert</button>
+      </div>
+    </div>
+    <table>
+      <thead>
+        <tr>
+          <th>Esito</th>
+          <th>Prodotto</th>
+          <th>Codice</th>
+          <th>Stock Sheet</th>
+          <th>Disponibile Sito</th>
+          <th>Dettaglio</th>
+        </tr>
+      </thead>
+      <tbody id="itemsBody">
+        <tr><td colspan="6" class="muted">Nessun elemento da mostrare.</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <script>
+    let currentFilter = 'all';
+    let lastData = null;
+
+    function setFilter(f) {
+      currentFilter = f;
+      if (lastData) render(lastData);
+    }
+
+    function escapeHtml(s) {
+      return String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
     }
 
     async function startMonitor() {
-      const sheet_url = document.getElementById("sheetUrl").value.trim();
-      const site_url = document.getElementById("siteUrl").value.trim();
-      const res = await fetch("/api/start", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
+      const sheet_url = document.getElementById('sheetUrl').value.trim();
+      const site_url = document.getElementById('siteUrl').value.trim();
+      const res = await fetch('/api/start', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
         body: JSON.stringify({ sheet_url, site_url })
       });
-      const out = await res.json();
-      document.getElementById("statusText").textContent = out.message;
-      refreshStatus();
+      const data = await res.json();
+      document.getElementById('statusMsg').textContent = data.message || 'Avviato';
+      await refreshStatus();
     }
 
     async function scanNow() {
-      const res = await fetch("/api/scan-now", { method: "POST" });
-      const out = await res.json();
-      document.getElementById("statusText").textContent = out.message;
-      setTimeout(refreshStatus, 1200);
+      const res = await fetch('/api/scan-now', { method: 'POST' });
+      const data = await res.json();
+      document.getElementById('statusMsg').textContent = data.message || 'Scansione avviata';
+      await refreshStatus();
     }
 
-    function renderBadge(type) {
-      if (type.includes("ALERT") || type.includes("NON DISPONIBILE")) {
-        return `<span class="badge-alert">${type}</span>`;
-      }
-      if (type === "NON ABBINATO") {
-        return `<span class="badge-warn">${type}</span>`;
-      }
-      return `<span class="badge-ok">OK</span>`;
-    }
-
-    function renderTables(data) {
-      document.getElementById("sheetCount").textContent = data.sheet_count || 0;
-      document.getElementById("siteCount").textContent = data.site_count || 0;
-      document.getElementById("alertCount").textContent = (data.alerts || []).length;
-      document.getElementById("statusText").textContent = data.status_message || "";
+    function render(data) {
+      lastData = data;
+      document.getElementById('statusMsg').textContent = data.status_message || '';
+      document.getElementById('sheetCount').textContent = data.sheet_count ?? 0;
+      document.getElementById('siteCount').textContent = data.site_count ?? 0;
+      const alerts = data.alerts || [];
+      document.getElementById('alertCount').textContent = alerts.length;
 
       if (data.next_run) {
         const d = new Date(data.next_run);
-        document.getElementById("nextRun").textContent = d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+        document.getElementById('nextRun').textContent = d.toLocaleTimeString([], {hour: '2-digit', minute: '2-digit'});
       }
 
-      const alertBody = document.getElementById("alertBody");
-      if (!data.alerts || data.alerts.length === 0) {
-        alertBody.innerHTML = `<tr><td colspan="5">Nessun prodotto non disponibile rilevato.</td></tr>`;
+      const alertsBody = document.getElementById('alertsBody');
+      if (!alerts.length) {
+        alertsBody.innerHTML = '<tr><td colspan="5" class="muted">Nessun prodotto non disponibile rilevato.</td></tr>';
       } else {
-        alertBody.innerHTML = data.alerts.map(item => `
-          <tr class="row-alert">
-            <td>${renderBadge(item.alert_type)}</td>
-            <td><a href="${item.url}" target="_blank" rel="noopener">${item.nome}</a></td>
-            <td>${item.codice}</td>
-            <td><strong>${item.stock_foglio}</strong></td>
-            <td>${item.motivo}</td>
+        alertsBody.innerHTML = alerts.map(a => `
+          <tr>
+            <td><span class="badge-alert">${escapeHtml(a.alert_type)}</span></td>
+            <td><a href="${escapeHtml(a.url)}" target="_blank">${escapeHtml(a.nome)}</a></td>
+            <td>${escapeHtml(a.codice)}</td>
+            <td>${escapeHtml(a.stock_foglio)}</td>
+            <td>${escapeHtml(a.motivo)}</td>
           </tr>
-        `).join("");
+        `).join('');
       }
 
-      const items = (data.items || []).filter(i => currentFilter === "all" || i.alert);
-      const allBody = document.getElementById("allBody");
-      if (items.length === 0) {
-        allBody.innerHTML = `<tr><td colspan="6">Nessun elemento da mostrare.</td></tr>`;
+      const items = (data.items || []).filter(it => currentFilter === 'all' || it.alert);
+      const itemsBody = document.getElementById('itemsBody');
+      if (!items.length) {
+        itemsBody.innerHTML = '<tr><td colspan="6" class="muted">Nessun elemento da mostrare.</td></tr>';
       } else {
-        allBody.innerHTML = items.map(item => `
-          <tr class="${item.alert ? "row-alert" : ""}">
-            <td>${renderBadge(item.alert_type)}</td>
-            <td><a href="${item.url}" target="_blank" rel="noopener">${item.nome}</a></td>
-            <td>${item.codice}</td>
-            <td>${item.stock_foglio}</td>
-            <td>${item.disponibile_sito}</td>
-            <td>${item.motivo}</td>
-          </tr>
-        `).join("");
+        itemsBody.innerHTML = items.map(it => {
+          const badge = it.alert
+            ? `<span class="badge-alert">${escapeHtml(it.alert_type)}</span>`
+            : (it.alert_type === 'NON ABBINATO'
+                ? `<span class="badge-warn">${escapeHtml(it.alert_type)}</span>`
+                : `<span class="badge-ok">OK</span>`);
+          return `
+            <tr>
+              <td>${badge}</td>
+              <td><a href="${escapeHtml(it.url)}" target="_blank">${escapeHtml(it.nome)}</a></td>
+              <td>${escapeHtml(it.codice)}</td>
+              <td>${escapeHtml(it.stock_foglio)}</td>
+              <td>${escapeHtml(it.disponibile_sito)}</td>
+              <td>${escapeHtml(it.motivo)}</td>
+            </tr>
+          `;
+        }).join('');
       }
     }
 
     async function refreshStatus() {
-      const res = await fetch("/api/status");
-      const data = await res.json();
-      latestData = data;
-      if (data.sheet_url && !document.getElementById("sheetUrl").value) {
-        document.getElementById("sheetUrl").value = data.sheet_url;
+      try {
+        const res = await fetch('/api/status');
+        const data = await res.json();
+        render(data);
+        return Boolean(data.scanning);
+      } catch (e) {
+        return false;
       }
-      if (data.site_url && !document.getElementById("siteUrl").value) {
-        document.getElementById("siteUrl").value = data.site_url;
-      }
-      renderTables(data);
     }
 
     refreshStatus();
-    setInterval(refreshStatus, 10000);
+    setInterval(async () => {
+      const isScanning = await refreshStatus();
+      if (!isScanning && (!lastData || !lastData.last_run)) {
+        // rimane in ascolto leggero
+      }
+    }, 2000);
   </script>
 </body>
 </html>
