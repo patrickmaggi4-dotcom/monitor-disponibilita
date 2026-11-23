@@ -38,6 +38,17 @@ class ConfigPayload(BaseModel):
     site_url: str
 
 
+def clean_pasted_url(raw: str) -> str:
+    s = (raw or "").strip()
+    md_match = re.search(r"\]\((https?://[^\s\)]+)\)", s)
+    if md_match:
+        s = md_match.group(1)
+    s = s.strip("[]()<>\"' ")
+    if " " in s:
+        s = s.split(" ")[0]
+    return s
+
+
 def normalize_code(val: Optional[str]) -> str:
     if not val:
         return ""
@@ -48,7 +59,7 @@ def normalize_code(val: Optional[str]) -> str:
 
 
 def to_export_csv_url(sheet_url: str) -> str:
-    url = sheet_url.strip()
+    url = clean_pasted_url(sheet_url)
     match = re.search(r"/spreadsheets/d/([a-zA-Z0-9-_]+)", url)
     if not match:
         return url
@@ -132,8 +143,8 @@ def extract_urls_from_xml(xml_text: str) -> List[str]:
     ]
 
 
-async def discover_site_product_urls(client: httpx.AsyncClient, site_url: str, max_pages: int = 120) -> List[str]:
-    base = site_url.strip()
+async def discover_site_product_urls(client: httpx.AsyncClient, site_url: str, max_pages: int = 80) -> List[str]:
+    base = clean_pasted_url(site_url)
     if not base.startswith(("http://", "https://")):
         base = "https://" + base
     if not is_valid_http_url(base):
@@ -169,6 +180,8 @@ async def discover_site_product_urls(client: httpx.AsyncClient, site_url: str, m
 
     to_visit = [base]
     visited = set()
+    all_internal_pages: List[str] = []
+
     while to_visit and len(visited) < max_pages:
         current = to_visit.pop(0)
         if current in visited or not is_valid_http_url(current):
@@ -186,26 +199,34 @@ async def discover_site_product_urls(client: httpx.AsyncClient, site_url: str, m
                 p = urlparse(full_url)
                 if p.netloc != parsed_base.netloc:
                     continue
-                if any(ext in p.path.lower() for ext in [".jpg", ".jpeg", ".png", ".webp", ".gif", ".pdf", ".css", ".js"]):
+                if any(ext in p.path.lower() for ext in [".jpg", ".jpeg", ".png", ".webp", ".gif", ".pdf", ".css", ".js", ".xml", ".zip"]):
                     continue
-                candidate_urls.append(full_url)
-                if any(kw in full_url.lower() for kw in ["shop", "catalog", "catalogo", "prodott", "categoria", "category", "collection"]):
-                    if full_url not in visited and full_url not in to_visit and len(to_visit) < max_pages:
-                        to_visit.append(full_url)
+                if any(skip in p.path.lower() for skip in ["/wp-login", "/wp-admin", "/cart", "/carrello", "/checkout", "/account", "/my-account", "/login", "/privacy", "/cookie"]):
+                    continue
+                all_internal_pages.append(full_url)
+                if full_url not in visited and full_url not in to_visit and len(to_visit) < max_pages:
+                    to_visit.append(full_url)
         except Exception:
             pass
 
     product_like: List[str] = []
+    fallback_pages: List[str] = []
     seen = set()
-    for u in candidate_urls:
+
+    for u in candidate_urls + all_internal_pages:
         if u in seen or not is_valid_http_url(u):
             continue
         seen.add(u)
+        if u.rstrip("/") == origin.rstrip("/"):
+            continue
         low = u.lower()
-        if any(seg in low for seg in ["/prodotto/", "/product/", "/item/", "/p/", "sku=", "codice="]):
+        if any(seg in low for seg in ["/prodotto/", "/product/", "/item/", "/p/", "/noleggio/", "/attrezzatur", "/macchin", "sku=", "codice="]):
             product_like.append(u)
+        else:
+            fallback_pages.append(u)
 
-    return product_like[:max_pages]
+    chosen = product_like if product_like else fallback_pages
+    return chosen[:max_pages]
 
 
 def detect_site_availability(html: str, title: str) -> Tuple[bool, str, List[str]]:
@@ -290,8 +311,8 @@ async def scan_site_products(client: httpx.AsyncClient, site_url: str) -> List[D
 
 
 async def run_monitoring_cycle() -> None:
-    sheet_url = STATE.get("sheet_url", "").strip()
-    site_url = STATE.get("site_url", "").strip()
+    sheet_url = clean_pasted_url(STATE.get("sheet_url", ""))
+    site_url = clean_pasted_url(STATE.get("site_url", ""))
     if not sheet_url or not site_url:
         return
 
@@ -410,8 +431,8 @@ async def on_startup() -> None:
 
 @app.post("/api/start")
 async def start_monitor(payload: ConfigPayload) -> Dict[str, Any]:
-    STATE["sheet_url"] = payload.sheet_url.strip()
-    STATE["site_url"] = payload.site_url.strip()
+    STATE["sheet_url"] = clean_pasted_url(payload.sheet_url)
+    STATE["site_url"] = clean_pasted_url(payload.site_url)
     STATE["running"] = True
     ensure_job_scheduled()
     asyncio.create_task(run_monitoring_cycle())
