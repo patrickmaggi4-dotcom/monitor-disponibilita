@@ -70,6 +70,19 @@ def parse_stock(val: Optional[str]) -> int:
         return 0
 
 
+def is_valid_http_url(url: str) -> bool:
+    if not url:
+        return False
+    u = url.strip()
+    if "[" in u or "]" in u or " " in u:
+        return False
+    try:
+        parsed = urlparse(u)
+        return parsed.scheme in ("http", "https") and bool(parsed.netloc) and "." in parsed.netloc
+    except Exception:
+        return False
+
+
 async def fetch_sheet_products(client: httpx.AsyncClient, sheet_url: str) -> List[Dict[str, Any]]:
     csv_url = to_export_csv_url(sheet_url)
     resp = await client.get(csv_url, follow_redirects=True, timeout=30.0)
@@ -111,21 +124,31 @@ async def fetch_sheet_products(client: httpx.AsyncClient, sheet_url: str) -> Lis
 
 def extract_urls_from_xml(xml_text: str) -> List[str]:
     soup = BeautifulSoup(xml_text, "xml")
-    return [loc.get_text(strip=True) for loc in soup.find_all("loc") if loc.get_text(strip=True)]
+    return [
+        loc.get_text(strip=True)
+        for loc in soup.find_all("loc")
+        if is_valid_http_url(loc.get_text(strip=True))
+    ]
 
 
 async def discover_site_product_urls(client: httpx.AsyncClient, site_url: str, max_pages: int = 120) -> List[str]:
     base = site_url.strip()
     if not base.startswith(("http://", "https://")):
         base = "https://" + base
+    if not is_valid_http_url(base):
+        return []
+
     parsed_base = urlparse(base)
     origin = f"{parsed_base.scheme}://{parsed_base.netloc}"
 
     candidate_urls: List[str] = []
 
     for sm_path in ["/sitemap_index.xml", "/sitemap.xml", "/product-sitemap.xml"]:
+        sm_url = urljoin(origin, sm_path)
+        if not is_valid_http_url(sm_url):
+            continue
         try:
-            r = await client.get(urljoin(origin, sm_path), follow_redirects=True, timeout=15.0)
+            r = await client.get(sm_url, follow_redirects=True, timeout=15.0)
             if r.status_code == 200 and ("<urlset" in r.text or "<sitemapindex" in r.text):
                 locs = extract_urls_from_xml(r.text)
                 for loc in locs:
@@ -147,7 +170,7 @@ async def discover_site_product_urls(client: httpx.AsyncClient, site_url: str, m
     visited = set()
     while to_visit and len(visited) < max_pages:
         current = to_visit.pop(0)
-        if current in visited:
+        if current in visited or not is_valid_http_url(current):
             continue
         visited.add(current)
         try:
@@ -157,6 +180,8 @@ async def discover_site_product_urls(client: httpx.AsyncClient, site_url: str, m
             soup = BeautifulSoup(r.text, "html.parser")
             for a in soup.find_all("a", href=True):
                 full_url = urljoin(current, a["href"]).split("#")[0]
+                if not is_valid_http_url(full_url):
+                    continue
                 p = urlparse(full_url)
                 if p.netloc != parsed_base.netloc:
                     continue
@@ -172,7 +197,7 @@ async def discover_site_product_urls(client: httpx.AsyncClient, site_url: str, m
     product_like: List[str] = []
     seen = set()
     for u in candidate_urls:
-        if u in seen:
+        if u in seen or not is_valid_http_url(u):
             continue
         seen.add(u)
         low = u.lower()
@@ -227,6 +252,8 @@ async def scan_site_products(client: httpx.AsyncClient, site_url: str) -> List[D
     results: List[Dict[str, Any]] = []
 
     for url in urls:
+        if not is_valid_http_url(url):
+            continue
         try:
             r = await client.get(url, follow_redirects=True, timeout=15.0)
             if r.status_code != 200:
