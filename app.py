@@ -54,8 +54,9 @@ def to_export_csv_url(sheet_url: str) -> str:
         return url
     sheet_id = match.group(1)
     gid_match = re.search(r"[?&]gid=([0-9]+)", url)
-    gid = gid_match.group(1) if gid_match else "0"
-    return f"https://docs.google.com/spreadsheets/d/{sheet_id}/export?format=csv&gid={gid}"
+    if gid_match and gid_match.group(1) != "0":
+        return f"https://docs.google.com/spreadsheets/d/{sheet_id}/export?format=csv&gid={gid_match.group(1)}"
+    return f"https://docs.google.com/spreadsheets/d/{sheet_id}/export?format=csv"
 
 
 def parse_stock(val: Optional[str]) -> int:
@@ -298,7 +299,7 @@ async def run_monitoring_cycle() -> None:
     STATE["status_message"] = "Controllo in corso su Google Sheet e sito..."
 
     headers = {
-        "User-Agent": "Mozilla/5.0 (compatible; LucaniaRentStockMonitor/1.0)"
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
     }
     try:
         async with httpx.AsyncClient(headers=headers) as client:
